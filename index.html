@@ -299,18 +299,29 @@ const pa=new THREE.Mesh(new THREE.BoxGeometry(.12,.12,.95),new THREE.MeshLambert
 pa.position.set(0,RY+.5,-1.05);hoop.add(pa);
 
 // ball
-const bc=document.createElement('canvas');bc.width=256;bc.height=128;
-const b=bc.getContext('2d');b.fillStyle='#ff7a14';b.fillRect(0,0,256,128);
-b.strokeStyle='#2a1406';b.lineWidth=3.5;b.beginPath();
-b.moveTo(0,64);b.lineTo(256,64);
-[0,128,256].forEach(v=>{b.moveTo(v,0);b.lineTo(v,128)});
-[64,192].forEach(v=>{b.moveTo(v-26,0);b.quadraticCurveTo(v,64,v-26,128);b.moveTo(v+26,0);b.quadraticCurveTo(v,64,v+26,128)});
-b.stroke();
-const bmc=document.createElement('canvas');bmc.width=256;bmc.height=128;const bx=bmc.getContext('2d');bx.fillStyle='#808080';bx.fillRect(0,0,256,128);
-for(let i=0;i<5000;i++){const v=90+Math.random()*80|0;bx.fillStyle=`rgb(${v},${v},${v})`;bx.fillRect(Math.random()*256,Math.random()*128,2,2)}
-b.globalAlpha=.06;for(let i=0;i<1200;i++){b.fillStyle='#3a1a05';b.fillRect(Math.random()*256,Math.random()*128,2,2)}b.globalAlpha=1;
-const ballMesh=new THREE.Mesh(new THREE.SphereGeometry(RB,32,20),new THREE.MeshStandardMaterial({map:new THREE.CanvasTexture(bc),bumpMap:new THREE.CanvasTexture(bmc),bumpScale:.15,roughness:.7,metalness:0}));
-scene.add(ballMesh);
+// ball: hi-res arcade-style texture with deep channels, pebble grain and a stamped logo
+const bc=document.createElement('canvas');bc.width=1024;bc.height=512;
+const b=bc.getContext('2d');{const g0=b.createLinearGradient(0,0,0,512);g0.addColorStop(0,'#ff9a3c');g0.addColorStop(.5,'#ff7417');g0.addColorStop(1,'#e95e0c');b.fillStyle=g0;b.fillRect(0,0,1024,512);
+  b.globalAlpha=.1;for(let i=0;i<9000;i++){b.fillStyle=Math.random()<.5?'#7a2e05':'#ffd1a3';b.beginPath();b.arc(Math.random()*1024,Math.random()*512,1+Math.random()*1.4,0,7);b.fill()}b.globalAlpha=1;
+  const seams=()=>{b.beginPath();b.moveTo(0,256);b.lineTo(1024,256);[0,512,1024].forEach(v=>{b.moveTo(v,0);b.lineTo(v,512)});
+    [256,768].forEach(v=>{b.moveTo(v+150,256);b.ellipse(v,256,150,165,0,0,Math.PI*2)})};
+  b.lineCap='round';b.strokeStyle='rgba(255,190,120,.45)';b.lineWidth=20;seams();b.stroke();
+  b.strokeStyle='#160a03';b.lineWidth=11;seams();b.stroke();
+  b.save();b.translate(512+256,120);b.font='italic 900 44px "Barlow Condensed","Trebuchet MS",sans-serif';b.textAlign='center';b.fillStyle='rgba(22,10,3,.8)';b.fillText('HOOPS',0,0);b.font='800 22px sans-serif';b.fillText('OFFICIAL GAME BALL',0,30);b.restore()}
+const bmc=document.createElement('canvas');bmc.width=1024;bmc.height=512;const bx=bmc.getContext('2d');bx.fillStyle='#909090';bx.fillRect(0,0,1024,512);
+for(let i=0;i<22000;i++){const v=135+Math.random()*70|0;bx.fillStyle=`rgb(${v},${v},${v})`;bx.beginPath();bx.arc(Math.random()*1024,Math.random()*512,.7+Math.random()*.6,0,7);bx.fill()}
+bx.lineCap='round';bx.strokeStyle='#000';bx.lineWidth=12;bx.beginPath();bx.moveTo(0,256);bx.lineTo(1024,256);[0,512,1024].forEach(v=>{bx.moveTo(v,0);bx.lineTo(v,512)});
+[256,768].forEach(v=>{bx.moveTo(v+150,256);bx.ellipse(v,256,150,165,0,0,Math.PI*2)});bx.stroke();
+const btex=new THREE.CanvasTexture(bc);btex.anisotropy=renderer.capabilities.getMaxAnisotropy();
+const ballMesh=new THREE.Mesh(new THREE.SphereGeometry(RB,48,32),new THREE.MeshPhysicalMaterial({map:btex,bumpMap:new THREE.CanvasTexture(bmc),bumpScale:.07,roughness:.66,metalness:0,clearcoat:.18,clearcoatRoughness:.6,emissive:0xff6a10,emissiveIntensity:.06}));
+const ballG=new THREE.Group();ballG.add(ballMesh);scene.add(ballG);
+// shot trail: fading additive glow sprites that follow the ball in flight
+const trail=(()=>{const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d'),gr=x.createRadialGradient(32,32,0,32,32,32);
+  gr.addColorStop(0,'rgba(255,255,255,1)');gr.addColorStop(.35,'rgba(255,255,255,.5)');gr.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=gr;x.fillRect(0,0,64,64);
+  const tx=new THREE.CanvasTexture(c),N=16,sp=[],pts=[];
+  for(let i=0;i<N;i++){const m=new THREE.Sprite(new THREE.SpriteMaterial({map:tx,color:0xffa040,transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending}));m.visible=false;scene.add(m);sp.push(m)}
+  return{step(on,col){if(on)pts.unshift(ball.p.clone());else pts.length=Math.max(0,pts.length-2);if(pts.length>N)pts.length=N;
+    sp.forEach((m,i)=>{const P=pts[i];if(!P){m.visible=false;return}m.visible=true;m.position.copy(P);const k=1-i/N;m.material.opacity=.5*k*k;m.material.color.setHex(col);m.scale.setScalar(RB*2.6*(.35+.65*k))})}}})();
 const blob=new THREE.Mesh(new THREE.CircleGeometry(.2,16),new THREE.MeshBasicMaterial({color:0,transparent:true,opacity:.35}));
 blob.rotation.x=-Math.PI/2;scene.add(blob);
 let ringA;const ringM=new THREE.Group();{const mat=(c,o)=>new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:o,depthWrite:false});
@@ -457,7 +468,7 @@ const nk=k=>k.length>1?k:k.toLowerCase();
 const kl=k=>k===' '?'Space':k==='ArrowUp'?'\u2191':k==='ArrowDown'?'\u2193':k==='ArrowLeft'?'\u2190':k==='ArrowRight'?'\u2192':k.length===1?k.toUpperCase():k;
 let cdn=0,paused=false,listen=null,slideTouch=false;
 const joy={x:0,y:0},keys={},camF=new THREE.Vector3(0,1,5);let camD=12;
-const ball={p:new THREE.Vector3(),v:new THREE.Vector3(),done:false,touched:false,t:0,bounces:0,prevY:0};
+const ball={w:new THREE.Vector3(),sq:0,p:new THREE.Vector3(),v:new THREE.Vector3(),done:false,touched:false,t:0,bounces:0,prevY:0};
 const $$=(a,b)=>Math.hypot(a.p.x-b.p.x,a.p.z-b.p.z);
 function say(t){const m=$('msg');m.textContent=t;m.classList.remove('go');void m.offsetWidth;m.classList.add('go')}
 function hud(){$('sc').textContent=score[me];$('st').textContent=score[1-me]}
@@ -489,6 +500,7 @@ function launch(sh,x,z,f,yaw,blk,y0,gr){
     ball.v.set((fx*c+rx*s)*hs,v0*Math.sin(TH),(fz*c+rz*s)*hs);
   }
   Object.assign(ball,{done:false,touched:false,t:0,bounces:0,prevY:y0,oop:false,gr:!!gr&&!blk});
+  {const hv=Math.hypot(ball.v.x,ball.v.z)||1;if(blk)ball.w.set(ball.v.z*-6,(blk.vx-blk.vz)*2,ball.v.x*6);else ball.w.set(-ball.v.z/hv*17,0,ball.v.x/hv*17)}
   bs='free';hold=-1;lastSh=sh;three=d>6.75;pl[sh].sh=.7;pl[sh].js=false;pl[sh].jc=-1;acc=0;
 }
 function takeShot(sh,f,yaw,green){
@@ -616,7 +628,7 @@ function doOop(){
   const x0=m.p.x,z0=m.p.z,y0=1.8,tx=0,ty=3.1,tz=.8;
   const vx=(tx-x0)/OT,vz=(tz-z0)/OT,vy=(ty-y0+.5*G*OT*OT)/OT;
   ball.p.set(x0,y0,z0);ball.v.set(vx,vy,vz);
-  Object.assign(ball,{done:false,touched:false,t:0,bounces:0,prevY:y0,oop:true,gr:false});
+  Object.assign(ball,{done:false,touched:false,t:0,bounces:0,prevY:y0,oop:true,gr:false});ball.w.set(0,0,0);
   bs='free';hold=-1;lastSh=me;three=false;m.sh=.3;m.js=false;acc=0;
   emit('shot',{t:'oop',s:me,x:x0,z:z0,vx,vy,vz});say('Alley-oop!');
 }
@@ -684,23 +696,37 @@ function end(){
   $('ovp').textContent='Rematch or pick another mode.';leaveRoom();showMenu();$('ov').classList.remove('hide');
 }
 
+// ball physics: real restitution per surface, friction at the contact point and spin (a hollow sphere, I = 2/3 m r^2)
+const _bn=new THREE.Vector3(),_br=new THREE.Vector3(),_bc=new THREE.Vector3(),_bt=new THREE.Vector3(),UPV=new THREE.Vector3(0,1,0),BKV=new THREE.Vector3(0,0,1);
+function bContact(n,e,mu){const v=ball.v,w=ball.w,vn=v.dot(n);if(vn>=0)return 0;
+  v.addScaledVector(n,-(1+e)*vn);
+  _br.copy(n).multiplyScalar(-RB);_bc.crossVectors(w,_br).add(v);_bc.addScaledVector(n,-_bc.dot(n));
+  const lim=mu*(1+e)*(-vn);_bc.multiplyScalar(-.4);const dl=_bc.length();if(dl>lim)_bc.multiplyScalar(lim/dl);
+  v.add(_bc);_bt.crossVectors(_br,_bc).multiplyScalar(1.5/(RB*RB));w.add(_bt);return -vn}
 function physics(){
-  const n=4,h=STEP/n,p=ball.p,v=ball.v;
+  const n=4,h=STEP/n,p=ball.p,v=ball.v,w=ball.w;
   for(let k=0;k<n;k++){
-    v.y-=G*h;p.addScaledVector(v,h);
-    if(p.y<RB){p.y=RB;if(v.y<-1){ball.bounces++;sfx.bounce(-v.y)}v.y=Math.abs(v.y)*.62;v.x*=.97;v.z*=.97}
-    if(Math.abs(p.x)<.9+RB&&p.y>RY-.25&&p.y<RY+.95&&p.z-RB<BZ&&p.z>BZ-.25&&v.z<0){p.z=BZ+RB;v.z=-v.z*.55;v.x*=.9;ball.touched=true;sfx.board()}
+    v.y-=G*h;p.addScaledVector(v,h);w.multiplyScalar(1-.04*h);
+    // floor: lively first bounces that die out, then rolling with a little resistance
+    if(p.y<RB){p.y=RB;if(v.y<0){const imp=-v.y,e=imp<.45?0:Math.min(.82,.72+.02*imp);bContact(UPV,e,.6);
+        if(imp>1){ball.bounces++;sfx.bounce(imp);ball.sq=Math.max(ball.sq,Math.min(.24,imp*.032))}}}
+    if(p.y<=RB+1e-3&&Math.abs(v.y)<.05){v.y=0;
+      _br.set(0,-RB,0);_bc.crossVectors(w,_br).add(v);_bc.y=0;const lim=.6*G*h;_bc.multiplyScalar(-.4);const dl=_bc.length();if(dl>lim)_bc.multiplyScalar(lim/dl);
+      v.add(_bc);_bt.crossVectors(_br,_bc).multiplyScalar(1.5/(RB*RB));w.add(_bt);
+      const sp=Math.hypot(v.x,v.z);if(sp>0){const d=Math.min(sp,.45*h)/sp;v.x-=v.x*d;v.z-=v.z*d;w.multiplyScalar(1-d)}}
+    // backboard: firm glass with a little grip, so backspin kisses it down
+    if(Math.abs(p.x)<.9+RB&&p.y>RY-.25&&p.y<RY+.95&&p.z-RB<BZ&&p.z>BZ-.25&&v.z<0){p.z=BZ+RB;if(bContact(BKV,.64,.3)>0){ball.touched=true;sfx.board();ball.sq=Math.max(ball.sq,.08)}}
+    // rim: steel tube, softer than the floor, friction turns backspin into a soft shooter's touch
     if(!(ball.gr&&!ball.done))for(let i=0;i<16;i++){
       const a=i/16*Math.PI*2,dx=p.x-Math.cos(a)*RR,dy=p.y-RY,dz=p.z-Math.sin(a)*RR;
       const dist=Math.hypot(dx,dy,dz),rr=RB+.03;
       if(dist<rr&&dist>1e-4){
-        const nx=dx/dist,ny=dy/dist,nz=dz/dist,vn=v.x*nx+v.y*ny+v.z*nz;
-        if(vn<0){v.x-=1.55*vn*nx;v.y-=1.55*vn*ny;v.z-=1.55*vn*nz;ball.touched=true;sfx.rim(-vn)}
-        p.x+=nx*(rr-dist);p.y+=ny*(rr-dist);p.z+=nz*(rr-dist);
+        _bn.set(dx/dist,dy/dist,dz/dist);const imp=bContact(_bn,.52,.25);if(imp>0){ball.touched=true;sfx.rim(imp)}
+        p.x+=_bn.x*(rr-dist);p.y+=_bn.y*(rr-dist);p.z+=_bn.z*(rr-dist);
       }
     }
     if(!ball.done&&ball.prevY>RY&&p.y<=RY&&v.y<0&&Math.hypot(p.x,p.z)<RR-.04){award();if(!running)return}
-    if(ball.done&&p.y<RY&&p.y>RY-.6&&Math.hypot(p.x,p.z)<RR+.1){v.x*=.93;v.z*=.93;v.y*=.985}
+    if(ball.done&&p.y<RY&&p.y>RY-.6&&Math.hypot(p.x,p.z)<RR+.1){v.x*=.93;v.z*=.93;v.y*=.985;w.multiplyScalar(.97)}
     ball.prevY=p.y;
   }
   ball.t+=STEP;
@@ -966,7 +992,11 @@ function frame(now){
       ball.p.set(h.p.x+fx*.36-fz*lat,y,h.p.z+fz*.36+fx*lat)}
     ball.v.set(0,0,0);
   }
-  ballMesh.position.copy(ball.p);if(bs!=='held'){const sp=Math.hypot(ball.v.x,ball.v.z);if(sp>.05){const ax=new THREE.Vector3(ball.v.z,0,-ball.v.x).normalize();ballMesh.rotateOnWorldAxis(ax,(ball.p.y>.4?-5:sp/RB)*dt)}}
+  ballG.position.copy(ball.p);
+  if(bs!=='held'){const wl=ball.w.length();if(wl>.01)ballMesh.rotateOnWorldAxis(_bt.copy(ball.w).divideScalar(wl),wl*dt)}
+  else{ball.w.set(0,0,0);if(ball.p.y<RB+.035)ball.sq=Math.max(ball.sq,.13);const h=pl[hold];if(h){_bt.set(Math.cos(h.a),0,-Math.sin(h.a));ballMesh.rotateOnWorldAxis(_bt,-dt*9)}}
+  ball.sq*=Math.exp(-dt*16);{const q=ball.sq;ballG.scale.set(1+q*.55,1-q,1+q*.55);ballG.position.y-=RB*q*.9}
+  trail.step(bs==='free'&&ball.v.length()>3.6&&ball.p.y>.9,ball.gr?0x7dffb0:0xffa040);
   blob.position.set(ball.p.x,.012,ball.p.z);blob.scale.setScalar(1/(1+(ball.p.y-RB)*.25));
   netPulse=Math.max(0,netPulse-dt*2.2);net.scale.set(1,1+netPulse*.35,1);
   ringM.position.set(pl[me].p.x,.02,pl[me].p.z);ringA.rotation.z=tt*1.4;fxStep(dt);camUpdate(dt);tagUpdate(dt);
@@ -1405,7 +1435,7 @@ async function connect(code,host,tries){
   R.on('shot',m=>{if(m.sameTab||!running||!m.data)return;const d=m.data,s0=d.s===1?1:0;
     if(d.t==='dk'){startDunk(s0,!!d.sig);return}
     if(d.t==='mk'){pl[s0].dk=0;ball.p.set(0,RY+.2,.05);ball.v.set(0,-2,0);ball.prevY=RY+.3;ball.touched=true;lastSh=s0;three=false;hold=-1;dunkF=true;dunkSig=!!d.sig;award();return}
-    if(d.t==='oop'){const n=k=>Number(d[k])||0;ball.p.set(n('x'),1.8,n('z'));ball.v.set(n('vx'),n('vy'),n('vz'));Object.assign(ball,{done:false,touched:false,t:0,bounces:0,prevY:1.8,oop:true,gr:false});bs='free';hold=-1;lastSh=s0;three=false;pl[s0].sh=.3;acc=0;return}
+    if(d.t==='oop'){const n=k=>Number(d[k])||0;ball.p.set(n('x'),1.8,n('z'));ball.v.set(n('vx'),n('vy'),n('vz'));Object.assign(ball,{done:false,touched:false,t:0,bounces:0,prevY:1.8,oop:true,gr:false});ball.w.set(0,0,0);bs='free';hold=-1;lastSh=s0;three=false;pl[s0].sh=.3;acc=0;return}
     launch(d.s,d.x,d.z,d.f,d.yaw,d.blk,d.y,!!d.g);if(d.y)oppMeterEnd(!!d.g&&!d.blk);if(!d.blk||d.y){const S=pl[s0];if(d.y){S.js=true;S.sh=.9;S.rY=Math.max(0,d.y-2.15);S.jlock=true}}if(charging){charging=false;$('meter').classList.remove('on')}});
   R.on('pick',m=>{if(m.sameTab||!running||!m.data)return;const p=m.data.p;
     if(p!==me&&hold===me&&me===0&&performance.now()-pickAt<600)return;gain(p,!!m.data.c)});
