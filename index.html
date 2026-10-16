@@ -194,6 +194,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #fff;outline-offset:3
     <div id="lobbyList"></div><p class="sub" id="lobNote"></p>
     <button class="btn" id="lobStart" hidden>Start game</button>
     <button class="btn bad" id="lobCancel">Cancel</button></div>
+  <p class="sub" id="ver" style="font-size:11px;opacity:.55">Version 48 · both players need the same version (refresh if unsure)</p>
   <div id="lvls" class="hide"><p class="lab" id="lvlab">CPU level</p><div id="lg"></div><button class="btn alt" id="lback">Back</button></div>
 </div></div>
 <div id="car" class="ovl hide"><div class="card wide"><h1 class="logo" style="font-size:44px">Career</h1><div id="carBody"></div></div></div>
@@ -1508,15 +1509,16 @@ function peerHost(code,hub){return new Promise(async(res,rej)=>{if(!await loadPe
 function peerJoin(code,hub){return new Promise(async(res,rej)=>{if(!await loadPeerJS())return rej('noload');
   const peer=new window.Peer({debug:0,config:ICE});hub.closers.push(()=>peer.destroy());let done=false,tries=0;
   const fail=r=>{if(done)return;done=true;try{peer.destroy()}catch(e){}rej(r)};
-  const to=setTimeout(()=>fail('timeout'),12000);
+  const to=setTimeout(()=>fail('timeout'),8000);
   const go=()=>{tries++;const c=peer.connect('hoops1v1-'+code,{reliable:true});c.on('open',()=>{if(done)return;done=true;clearTimeout(to);hub.add(linkConn(c));res()})};
   peer.on('open',go);
-  peer.on('error',e=>{const t=e&&e.type;if(t==='peer-unavailable'&&tries<4&&!done){setTimeout(go,1200);return}clearTimeout(to);fail(t||'error')})})}
+  peer.on('error',e=>{const t=e&&e.type;if(t==='peer-unavailable'&&tries<3&&!done){setTimeout(go,1200);return}clearTimeout(to);fail(t||'error')})})}
 // plain WebRTC, handshake through ntfy.sh
 const SIG={url:'https://ntfy.sh/',pre:'hoops1v1-k9q-',
   sub(topic,on,onOpen,onErr){const es=new EventSource(this.url+topic+'/sse');es.onopen=onOpen;es.onerror=onErr;
-    es.onmessage=e=>{let j;try{j=JSON.parse(e.data)}catch(x){return}if(j.event&&j.event!=='message')return;let m;try{m=JSON.parse(j.message)}catch(x){return}on(m)};return{close(){es.close()}}},
-  send(topic,o){return fetch(this.url+topic,{method:'POST',body:JSON.stringify(o)}).catch(()=>{})}};
+    const parts={};es.onmessage=e=>{let j;try{j=JSON.parse(e.data)}catch(x){return}if(j.event&&j.event!=='message')return;let m;try{m=JSON.parse(j.message)}catch(x){return}
+      if(m&&m.z){const P=parts[m.z]||(parts[m.z]={n:m.n,got:0,a:[]});if(P.a[m.i]===undefined){P.a[m.i]=m.p;P.got++}if(P.got===P.n){delete parts[m.z];try{on(JSON.parse(P.a.join('')))}catch(x){}}return}on(m)};return{close(){es.close()}}},
+  send(topic,o){const str=JSON.stringify(o),z=rid(),n=Math.ceil(str.length/2800),ps=[];for(let i=0;i<n;i++)ps.push(fetch(this.url+topic,{method:'POST',body:JSON.stringify({z,i,n,p:str.slice(i*2800,(i+1)*2800)})}).catch(()=>{}));return Promise.all(ps)}};
 const gatherICE=p=>new Promise(res=>{if(p.iceGatheringState==='complete')return res();const t=setTimeout(res,3000);p.addEventListener('icegatheringstatechange',()=>{if(p.iceGatheringState==='complete'){clearTimeout(t);res()}})});
 function rtcHost(code,hub){return new Promise((res,rej)=>{if(!window.RTCPeerConnection||!window.EventSource)return rej('nortc');
   const topic=SIG.pre+code,seen=new Set();let opened=false;
@@ -1537,10 +1539,16 @@ function rtcJoin(code,hub){return new Promise((res,rej)=>{if(!window.RTCPeerConn
     ()=>{if(!pc)fail('signal')})})}
 async function hostHub(code){const hub=makeHub(true);const r=await Promise.allSettled([peerHost(code,hub),rtcHost(code,hub)]);
   if(r.every(x=>x.status==='rejected')){hub.api.leave();throw r[0].reason||'error'}return hub}
-async function joinHub(code){const hub=makeHub(false);
-  try{await peerJoin(code,hub);return hub}catch(e){}
-  status('Still looking for game '+code.toUpperCase()+'...');
-  try{await rtcJoin(code,hub);return hub}catch(e){hub.api.leave();throw e}}
+let netGen=0;
+async function joinHub(code,gen){const t0=performance.now();let round=0,errs=[];
+  while(gen===netGen&&performance.now()-t0<60000){round++;
+    const note=round>1?' (still trying, '+Math.round((performance.now()-t0)/1000)+'s). Make sure the host has the game open on screen.':'...';
+    {const hub=makeHub(false);status('Looking for game '+code.toUpperCase()+note);$('lobNote')&&($('lobNote').textContent='Looking for game'+note);
+      try{await peerJoin(code,hub);if(gen!==netGen){hub.api.leave();break}return hub}catch(e){errs.push('p:'+e);hub.api.leave()}}
+    if(gen!==netGen)break;
+    {const hub=makeHub(false);try{await rtcJoin(code,hub);if(gen!==netGen){hub.api.leave();break}return hub}catch(e){errs.push('r:'+e);hub.api.leave()}}}
+  const blocked=errs.some(x=>x==='p:noload'||x==='p:network'||x==='p:server-error')&&errs.some(x=>x==='r:signal'||x==='r:nortc');
+  throw blocked?'blocked':'notfound'}
 
 // ---------- lobby ----------
 let netHost=false,netNP=2,LOBBY=[],CPUS=new Set(),netCode='',netCfg=null;
@@ -1558,7 +1566,7 @@ function renderLobby(){
     h+='<div class="lobr"><span class="lobt '+(TM(s)?'b':'a')+'">'+team+'</span><b>'+(p?(p.me?'You':p.host?'Host':'Friend'):(netNP===4?'CPU (open seat)':'Waiting...'))+'</b>'
       +(netHost&&p&&!p.host&&netNP===4?'<button class="btn alt lobsw" data-sw="'+p.id+'">Swap team</button>':'')+'</div>'}
   L.innerHTML=h;$('lobStart').hidden=!(netHost&&netNP===4);
-  $('lobNote').textContent=netHost?(netNP===4?'Share the code. Open seats are played by the CPU when you press Start.':'Share the code. The game starts as soon as your friend joins.'):(netNP===4?'Waiting for the host to start...':'Connecting...');
+  $('lobNote').textContent=netHost?(netNP===4?'Share the code and keep this screen open. Open seats are played by the CPU when you press Start.':'Share the code and keep this screen open. The game starts as soon as your friend joins.'):(netNP===4?'Waiting for the host to start...':'Connecting...');
 }
 function lobbyBroadcast(){if(R&&netHost)R.emit('lobby',{np:netNP,seats:LOBBY.map(x=>({id:x.id,seat:x.seat,host:x.host}))})}
 function freeSeat(pref){for(const s of pref)if(!LOBBY.some(x=>x.seat===s))return s;return -1}
@@ -1566,12 +1574,14 @@ async function connect(code,host,np){
   leaveRoom();netHost=host;netNP=np||2;netCode=code;LOBBY=[];CPUS=new Set();
   showLobby(true);renderLobby();status(host?'Creating game '+code.toUpperCase()+'...':'Looking for game '+code.toUpperCase()+'...');$('lobNote').textContent=host?'Creating game...':'Looking for game...';
   let hub=null,err=null;
-  try{hub=host?await hostHub(code):await joinHub(code)}catch(e){err=e}
+  const gen=++netGen;
+  try{hub=host?await hostHub(code):await joinHub(code,gen)}catch(e){err=e}
+  if(gen!==netGen){if(hub)hub.api.leave();return}
   if(!hub){
     if(host&&err==='unavailable-id')return connect(newCode(),true,np);
     let room=null;try{room=await window.claude?.use('room')}catch(e){}
     if(room&&room.join){try{R=await room.join('hoops-'+code);R.id=rid()}catch(e){R=null}}
-    if(!R){showLobby(false);status(host?'Could not create an online game from this network. Check your internet and try again.':'No game found with code '+code.toUpperCase()+'. Check the code, make sure your friend is still on the waiting screen, and try again.');return}
+    if(!R){showLobby(false);status(host?'Could not create an online game from this network. Check your internet, or try mobile data, and try again.':err==='blocked'?'This network seems to block the game servers. Try mobile data or a different Wi-Fi.':'No game found with code '+code.toUpperCase()+'. Check the code, make sure you are both on the same version (refresh the page), and that the host still has the waiting screen open.');return}
   }else R=hub.api;
   const myId=R.id||rid();
   if(host)LOBBY=[{id:myId,seat:0,host:true,me:true}];
@@ -1617,7 +1627,7 @@ $('code').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();
 $('lobCopy').onclick=async()=>{try{await navigator.clipboard.writeText(netCode.toUpperCase());$('lobCopy').textContent='Copied!'}catch(e){$('lobCopy').textContent=netCode.toUpperCase()}setTimeout(()=>$('lobCopy').textContent='Copy code',1500)};
 $('lobLink').onclick=async()=>{const l=inviteLink(netCode);try{if(navigator.share){await navigator.share({title:'Hoops 1v1',text:'Join my game: '+netCode.toUpperCase(),url:l})}else{await navigator.clipboard.writeText(l);$('lobLink').textContent='Link copied!'}}catch(e){}setTimeout(()=>$('lobLink').textContent='Share invite link',1500)};
 $('lobStart').onclick=hostStart;
-$('lobCancel').onclick=()=>{leaveRoom();showLobby(false);showMenu();status('Pick a mode to play.')};
+$('lobCancel').onclick=()=>{netGen++;leaveRoom();showLobby(false);showMenu();status('Pick a mode to play.')};
 $('lobbyList').addEventListener('click',e=>{const b=e.target.closest('[data-sw]');if(!b||!netHost)return;const p=LOBBY.find(x=>x.id===b.dataset.sw);if(!p)return;
   const want=TM(p.seat)?[2]:[1,3];const s=freeSeat(want);if(s>=0){p.seat=s;renderLobby();lobbyBroadcast()}else{const o=LOBBY.find(x=>!x.host&&TM(x.seat)!==TM(p.seat));if(o){const t=o.seat;o.seat=p.seat;p.seat=t;renderLobby();lobbyBroadcast()}}});
 // invite links: ?join=CODE joins straight away
